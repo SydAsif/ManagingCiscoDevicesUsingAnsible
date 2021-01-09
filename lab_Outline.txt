@@ -1,0 +1,217 @@
+We will outline how to automate Cisco IOS-based devices using Ansible.
+
+The following table outlines the management IP addresses on the Cisco nodes.
+
+Device		Role		    Vendor		MGMT Port         	MGMT IP
+
+access01	Access switch  	Cisco IOS	Ethernet0/0       	172.20.1.18
+access02	Access switch  	Cisco IOS	Ethernet0/0       	172.20.1.19
+core01		Core switch    	Cisco IOS 	Ethernet0/0       	172.20.1.20
+core02		Core switch    	Cisco IOS	Ethernet0/0       	172.20.1.21
+wan01		WAN router     	Cisco IOS	GigabitEthernet1 	172.20.1.22
+wan02       WAN router     	Cisco IOS   GigabitEthernet1 	172.20.1.23
+
+The software releases that this chapter is based on are as follows:
+ => Cisco IOS 15.1
+ => Ansible 2.9
+ => Python 3.6.8
+
+Building an Ansible network inventory
+
+Create the hosts file with the following content:
+
+[access]
+access01 ansible_host=172.20.1.18
+access02 ansible_host=172.20.1.19
+[core]
+core01 ansible_host=172.20.1.20
+core02 ansible_host=172.20.1.21
+[wan]
+wan01 ansible_host=172.20.1.22
+wan02 ansible_host=172.20.1.23
+[lan:children]
+access
+core
+[network:children]
+lan
+wan
+
+=> access group, which has both access switches (access01 and
+access02) in our topology.
+=> core group, which groups all core switches that will act as the L3
+termination for all the VLANs on the access switches.
+=> wan group, which groups all our Cisco IOS–XE routes, which will
+act as our wan routers.
+=> lan group, which groups both access and core groups.
+=> network group, which groups both lan and wan groups.
+
+Create the ansible.cfg file with the following content:
+
+[defaults]
+inventory=./hosts
+retry_files_enabled=False
+gathering=explicit
+host_key_checking=False
+timeout=60
+
+=> In ansible.cfg file we configured it to point to our hosts file to be
+used as an Ansible inventory file. We disabled the setup module, which is not requiredwhen running Ansible against network nodes.
+
+On all IOS devices, ensure that the following is configured to set up SSH access:
+
+conf t
+!
+hostname <device_hostname>
+!
+ip domain name <domain_name>
+!
+username admin secret admin123
+!
+enable secret admin123
+!
+line vty 0 4
+login local
+transport input SSH
+!
+crypto key generate rsa module 1048
+!
+end
+!
+wr
+
+Create the group_vars folder. Inside the group_vars folder, create the network.yml file with the following content:
+
+ansible_network_os: ios
+ansible_connection: network_cli
+ansible_user: admin
+ansible_password: admin123
+ansible_become: yes
+ansible_become_password: admin123
+ansible_become_method: enable
+
+Configuring basic system information:
+
+We will outline how we can configure basic system parameters on Cisco IOS devices, 
+such as setting the hostname, DNS server, and NTP servers.
+
+=> DNS servers 172.20.1.250 and 172.20.1.251
+=> NTP server 172.20.1.17
+
+How to do it...
+In the group_vars/network.yml file, add the following system parameters:
+
+name_servers:
+ - 172.20.1.250
+ - 172.20.1.251
+ntp_server: 172.20.1.17
+domain_name: test.com
+
+Create a playbook called build_network1.yml with the following information:
+
+---
+- name: "PLAY 1: Configure All Lan Switches"
+hosts: lan
+tags: lan
+tasks:
+  - name: "P1T1: Configure Hostname and Domain Name"
+    ios_system:
+      hostname: "{{ inventory_hostname }}"
+      domain_name: "{{ domain_name }}"
+      lookup_enabled: no
+      name_servers: "{{ name_servers }}"
+  - name: "P1T2: Configure NTP"
+    ios_ntp:
+      server: "{{ ntp_server }}"
+      logging: true
+      state: present
+
+Configuring interfaces on IOS devices:
+How to do it...
+
+In the group_vars/network.yml file, add the following content to define the generic interface parameters:
+
+intf_duplex: full
+intf_mtu: 1500
+
+Create a new file, lan.yml, under the group_vars folder, with the following data to define the interfaces on our Cisco devices:
+
+interfaces:
+  core01:
+    - name: Ethernet0/1
+      description: access01_e0/1
+      mode: trunk
+    - name: Ethernet0/2
+      description: access02_e0/1
+      mode: trunk
+    - name: Ethernet0/3
+      description: core01_e0/3
+      mode: trunk
+ 
+  access01:
+    - name: Ethernet0/1
+      description: core01_e0/1
+      mode: trunk
+    - name: Ethernet0/2
+      description: core02_e0/1
+      mode: trunk
+    - name: Ethernet0/3
+      description: Data_vlan
+      mode: access
+      vlan: 10
+
+Create build_network2.yml playbook file with the following task to set up the interfaces:
+
+- name: "P1T3: Configure Interfaces"
+  ios_interface:
+    name: "{{ item.name }}"
+    description: "{{ item.description }}"
+    duplex: "{{ intf_duplex }}"
+    mtu: "{{ intf_mtu }}"
+    state: up
+  loop: "{{ interfaces[inventory_hostname] }}"
+  register: ios_intf
+
+Configuring L2 VLANs on IOS devices:
+we will outline how to configure L2 VLANs on Cisco IOS devices
+How to do it...
+
+Update the group_vars/lan.yml file with the VLAN definition, as outlined in the following code:
+
+vlans:
+  - name: Data
+    vlan_id: 10
+  - name: Voice
+    vlan_id: 20
+  - name: Web
+    vlan_id: 100
+
+Create build_network3.yml playbook with the following task to provision the VLANs:
+
+- name: "P1T4: Create L2 VLANs"
+  ios_vlan:
+    vlan_id: "{{ item.vlan_id }}"
+    name: "{{ item.name }}"
+    loop: "{{ vlans }}"
+    tags: vlan
+
+Configuring trunk and access interfaces:
+we will show how to configure access and trunk interfaces on Cisco IOSbased devices, and how to map interfaces to an access VLAN, 
+as well as how to allow specific VLANs on the trunks.
+How to do it...
+
+Create a new core.yml file under group_vars and include the following core_vlans definition:
+
+core_vlans:
+  - name: l3_core_vlan
+    vlan_id: 200
+    interface: Ethernet0/3
+
+
+
+
+
+
+
+
+
+

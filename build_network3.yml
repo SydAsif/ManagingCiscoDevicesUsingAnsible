@@ -1,0 +1,11 @@
+---
+- name: "PLAY 1: Configure All Lan Switches"
+  hosts: lan
+  tags: lan
+  tasks:
+    - name: "P1T4: Create L2 VLANs"
+      ios_vlan:
+        vlan_id: "{{ item.vlan_id }}"
+        name: "{{ item.name }}"
+      loop: "{{ vlans }}"
+      tags: vlan

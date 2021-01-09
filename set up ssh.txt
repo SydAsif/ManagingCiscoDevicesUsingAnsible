@@ -1,0 +1,19 @@
+conf t
+!
+hostname <device_hostname>
+!
+ip domain name <domain_name>
+!
+username admin secret admin123
+!
+enable secret admin123
+!
+line vty 0 4
+login local
+transport input SSH
+!
+crypto key generate rsa module 1048
+!
+end
+!
+wr
