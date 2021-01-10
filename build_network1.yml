@@ -14,3 +14,4 @@
         server: "{{ ntp_server }}"
         logging: true
         state: present
+       
