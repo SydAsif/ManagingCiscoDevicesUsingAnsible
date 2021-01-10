@@ -195,7 +195,7 @@ Create build_network3.yml playbook with the following task to provision the VLAN
     tags: vlan
 
 Configuring trunk and access interfaces:
-we will show how to configure access and trunk interfaces on Cisco IOSbased devices, and how to map interfaces to an access VLAN, 
+we will show how to configure access and trunk interfaces on Cisco IOS based devices, and how to map interfaces to an access VLAN, 
 as well as how to allow specific VLANs on the trunks.
 How to do it...
 
